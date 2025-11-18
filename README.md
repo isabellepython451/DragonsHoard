@@ -8,9 +8,13 @@ It uses the **requests** library to make the connection, and does not require an
 See example:
 
 ```
-my_dragon = Dragon(api = MY_API_KEY, resource = 'characters')
-acquired_data = my_dragon.pillage(fields = 'name,id,birth,publisher')
-my_dragon.hoard(acquired_data, 'characters.json')
+dragon_pal = Dragon(api = MY_API_KEY, file = MY_FILE, resource = 'characters')
+custom_fields = 'name,aliases,gender,count_of_issue_appearances,publisher,origin,real_name,birth,id'
+while not dragon_pal.is_done():
+    dragon_pal.pillage(fields=custom_fields)
+    print('waiting 10 seconds...')
+    time.sleep(10)
+print('done')
 ```
 
 Currently it works only with the json format and requires the 'id' field in the payload to format and organize the saved information.
