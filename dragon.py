@@ -1,88 +1,116 @@
-import requests
-import json
-from resources import RESOURCES
+import requests, json
+from egg import Egg
 
 LIB_NAME = "Dragon's Hoard"
-VERSION = "0.0.13"
+VERSION = "0.0.14"
+
 
 class Dragon:
     """This class manages the API requests and saves the received data
     into pre-defined files.
     Takes the API KEY needed to access the url and the target resource;
     see https://comicvine.gamespot.com/api/documentation for options."""
-    def __init__(self, api:str, format:str = 'json'):
+
+    def __init__(self, api: str, file:str, resource, format: str = 'json'):
         ## Class constants
         self.header = {
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36'
-            }
+        }
+        self.comicvine_endpoint = 'https://comicvine.gamespot.com/api/'
+        self.valid_resources = [
+            'character',
+            'characters',
+            'chat',
+            'chats',
+            'concept',
+            'concepts',
+            'episode',
+            'episodes',
+            'issue',
+            'issues',
+            'location',
+            'locations',
+            'movie',
+            'movies',
+            'object',
+            'objects',
+            'origin',
+            'origins',
+            'person',
+            'people',
+            'power',
+            'powers',
+            'promo',
+            'promos',
+            'publisher',
+            'publishers',
+            'series',
+            'series_list',
+            'search',
+            'story_arc',
+            'story_arcs',
+            'team',
+            'teams',
+            'types',
+            'video',
+            'videos',
+            'video_type',
+            'video_types',
+            'video_category',
+            'video_categories',
+            'volume',
+            'volumes'
+            ]
 
         ## Class variables
         self.api_key = api
         self.format = format
-        self.url = 'https://comicvine.gamespot.com/api/'
-        self.resource = ''
-        self.acquired_results = 0
+        self.save_target = file
         self.total_results = 100
-        self.offset = 0
-        self.my_hoard = {} # where we will save the formatted requested data
+        self.my_hoard = {}  # where we will save the formatted requested data
 
-        # list containing valid paths and their fields
-        self.valid_resources = RESOURCES
+        # Create an egg and save in a list
+        self.egg = Egg(file, resource, format)
+        self.offset = self.egg.get_offset()
 
-    def _melt_gold(self, data:list) -> dict:
+        # list containing valid paths and their fields and checking if valid value was given
+        self.resource = resource
+        self._validate_resource()
+        self.url = f'{self.comicvine_endpoint}{self.resource}/'
+
+    def _melt_gold(self, data: list) -> dict:
         """Turns the list received from results into a dictionary
         with key:value pairs that can be more easily saved and loaded from
         the json files."""
-        return {str(entry['id']):entry for entry in data}
-    
-    def _validate_resource(self, resource:str) -> bool:
-        if resource in self.valid_resources:
-            self.resource = resource.lower()
-        else:
-            raise RuntimeError(f'Invalid argument passed: {resource}')
-    
-    def take_flight(self, file:str):
-        """Called to set the initial offset to correspond to the amount of entries in a given file.
-        Sets to 0 if no file found."""
-        try:
-            with open(file, mode='r') as f:
-                data = json.load(file)
-                self.offset = len(data)
-        except FileNotFoundError:
-            self.offset = 0
+        return {str(entry['id']): entry for entry in data}
 
-    def hoard(self, fmt_data:dict, save_target:str):
-        """Saves acquired data into a chosen file.
-        First tries to load json info from file if it exists to update,
-        then dumps."""
-        # try opening file to verify it already exists
-        try:
-            with open(save_target, mode='r') as file:
-                print(f'File "{save_target}" found. Loading data...')
-                saved_data = json.load(file)
-        # if it doesn't exist, create new and save formatted data
-        except FileNotFoundError:
-            print(f'File "{save_target}" not found. Creating new one...')
-            with open(save_target, mode='w') as file:
-                json.dump(fmt_data, file, indent=2, sort_keys=True)
-        # if it exists, and we acquired the data, update and save
+    def _validate_resource(self) -> None:
+        if self.resource in self.valid_resources:
+            return None
         else:
-            saved_data.update(fmt_data)
-            with open(save_target, mode='w') as file:
+            print(f'Invalid resource given ("{self.resource}");\nUsing fallback instead ("characters").')
+            self.resource = 'characters'
+
+    def _hoard(self):
+        """Saves acquired data into a chosen file."""
+        if self.egg.empty:
+            with open(self.save_target, mode='w') as file:
+                json.dump(self.my_hoard, file, indent=2, sort_keys=True)
+                self.egg.empty = False
+        else:
+            with open(self.save_target, mode='r') as file:
+                saved_data = json.load(file)
+            with open(self.save_target, mode='w') as file:
+                saved_data.update(self.my_hoard)
                 json.dump(saved_data, file, indent=2, sort_keys=True)
-        finally:
-            print('Data saved.')
+        print('Data saved.')
 
     def pillage(self,
-                resource:str,
-                offset:int = -1,
-                fields:str = '') -> dict:
+                offset: int = -1,
+                fields: str = '') -> None:
         """Connects to the url with the given payload and acquires data.
         Returns a dictionary containing that info that can be easily saved in
         a json file."""
-
-        self._validate_resource(resource)
-        self.url = f'{self.url}{self.resource}/'
         if offset != -1:
             self.offset = offset
 
@@ -98,21 +126,19 @@ class Dragon:
             'field_list': fields,
         }
 
-        self.acquired_results = offset # in case we are starting somewhere
         re = requests.get(url=self.url, params=payload, headers=self.header)
         re.raise_for_status()
         delta = re.elapsed
         raw_data = re.json()
         print(f'Time to acquire data: {delta}')
 
-         # grab the number of results from the API before discarding
-        self.total_results = raw_data['number_of_total_results']
-        raw_data = raw_data.pop('results') # remove header and get results
-        self.my_hoard = self._melt_gold(raw_data) # format data
+        self.total_results = raw_data['number_of_total_results']  # grab the number of results from the API before discarding
+        raw_data = raw_data.pop('results')  # remove header and get results
+        self.my_hoard = self._melt_gold(raw_data)  # format data for json file
         self.offset += len(self.my_hoard)
-        return self.my_hoard # return to sender
+        self._hoard() # save to file
     
-    def is_done(self, target:int = -1) -> bool:
+    def is_done(self, target: int = -1) -> bool:
         """Returns False if the amount of acquired data entries is smaller
         than the total results or the target, if one was given.
         Returns True if it has acquired as many entries as there are results."""
